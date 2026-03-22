@@ -8,9 +8,9 @@ import joblib
 import pandas as pd
 import streamlit as st
 
+from model_pipeline import train_champion_model_from_csv
 from vehicle_features import (
     RAW_FEATURE_COLUMNS,
-    VehicleFeatureEngineer,
     build_parsed_summary,
     register_pickle_shim,
 )
@@ -277,10 +277,15 @@ def load_dataset_snapshot() -> dict[str, Any]:
     }
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner="Loading model...")
 def load_model():
     register_pickle_shim()
-    return joblib.load(MODEL_PATH)
+    try:
+        return joblib.load(MODEL_PATH)
+    except Exception as exc:
+        print(f"Primary model artifact load failed: {exc}")
+        print("Rebuilding champion model from CSV inside the deployment environment.")
+        return train_champion_model_from_csv(DATA_PATH)
 
 
 def format_price(value: float) -> str:
