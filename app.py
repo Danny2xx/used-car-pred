@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +77,10 @@ def inject_styles() -> None:
             background: linear-gradient(135deg, #17353a 0%, #1f4c53 58%, #cc6125 100%);
             border: 1px solid rgba(19, 38, 41, 0.15);
             border-radius: 26px;
-            padding: 1.8rem 1.7rem 1.5rem 1.7rem;
+            padding: 1.45rem 1.55rem 1.3rem 1.55rem;
             color: #fffaf3;
             box-shadow: 0 22px 52px rgba(19, 38, 41, 0.18);
-            margin-bottom: 1.1rem;
+            margin-bottom: 0.8rem;
         }
 
         .hero-kicker {
@@ -92,17 +93,33 @@ def inject_styles() -> None:
 
         .hero-shell h1 {
             margin: 0 0 0.45rem 0;
-            font-size: 3rem;
+            font-size: 2.7rem;
             line-height: 1.02;
             color: #fffaf3;
         }
 
         .hero-shell p {
             margin: 0;
-            max-width: 50rem;
-            font-size: 1rem;
-            line-height: 1.55;
+            max-width: 43rem;
+            font-size: 0.98rem;
+            line-height: 1.5;
             color: rgba(255, 250, 243, 0.88);
+        }
+
+        .hero-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-top: 1rem;
+        }
+
+        .hero-chip {
+            border-radius: 999px;
+            border: 1px solid rgba(255, 250, 243, 0.18);
+            background: rgba(255, 250, 243, 0.10);
+            padding: 0.4rem 0.7rem;
+            font-size: 0.84rem;
+            color: rgba(255, 250, 243, 0.92);
         }
 
         .stat-card,
@@ -205,11 +222,67 @@ def inject_styles() -> None:
             margin: 0 0 0.55rem 0;
         }
 
+        .spec-panel {
+            padding: 1rem 1.05rem 0.95rem 1.05rem;
+        }
+
+        .spec-profile {
+            font-size: 1.02rem;
+            font-weight: 700;
+            color: #17353a;
+            margin-bottom: 0.7rem;
+        }
+
+        .spec-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.7rem;
+        }
+
+        .spec-pill {
+            border-radius: 16px;
+            padding: 0.8rem 0.85rem;
+            background: rgba(23, 53, 58, 0.04);
+            border: 1px solid rgba(19, 38, 41, 0.08);
+        }
+
+        .spec-pill-label {
+            display: block;
+            font-size: 0.72rem;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: #6d6b63;
+            margin-bottom: 0.28rem;
+        }
+
+        .spec-pill-value {
+            display: block;
+            font-size: 1rem;
+            color: #17353a;
+            font-weight: 700;
+        }
+
+        .support-note {
+            margin-top: 0.8rem;
+            font-size: 0.92rem;
+            color: #55686b;
+        }
+
+        .compact-note {
+            font-size: 0.93rem;
+            color: #55686b;
+        }
+
         div[data-testid="stForm"] {
             border: none;
             background: rgba(255, 250, 243, 0.64);
             border-radius: 22px;
             padding: 0.35rem 0.2rem 0.2rem 0.2rem;
+        }
+
+        .streamlit-expanderHeader {
+            font-weight: 600;
+            color: #17353a;
         }
 
         .stButton > button,
@@ -231,6 +304,26 @@ def inject_styles() -> None:
             border-radius: 999px;
             background: rgba(23, 53, 58, 0.06);
             padding: 0.45rem 0.9rem;
+        }
+
+        @media (max-width: 1100px) {
+            .spec-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .hero-shell h1 {
+                font-size: 2.2rem;
+            }
+
+            .spec-grid {
+                grid-template-columns: repeat(1, minmax(0, 1fr));
+            }
+
+            .mini-grid {
+                grid-template-columns: repeat(1, minmax(0, 1fr));
+            }
         }
         </style>
         """,
@@ -381,6 +474,33 @@ def default_listing(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "torque": "190Nm@ 2000rpm",
         "seats": 5.0,
     }
+
+
+def shorten_text(text: str, max_chars: int = 28) -> str:
+    cleaned = " ".join(str(text).split()).strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 3].rstrip() + "..."
+
+
+def example_button_label(sample: dict[str, Any], idx: int) -> str:
+    name = str(sample.get("name", "")).strip()
+    if not name:
+        return f"Try Example {idx + 1}"
+    core = " ".join(name.split()[:4])
+    return f"Try {shorten_text(core, 26)}"
+
+
+def example_button_caption(sample: dict[str, Any]) -> str:
+    bits = []
+    year = sample.get("year")
+    if year:
+        bits.append(str(int(year)))
+    for key in ["fuel", "transmission"]:
+        value = sample.get(key)
+        if value:
+            bits.append(str(value))
+    return " | ".join(bits)
 
 
 def _normalise_seats_text(value: Any) -> str:
@@ -542,18 +662,37 @@ def validate_listing(listing: dict[str, Any]) -> list[str]:
 
 
 def render_autofilled_spec_panel(listing: dict[str, Any]) -> None:
-    st.caption("Core vehicle specs are auto-filled from the selected dataset profile to reduce typing errors.")
-    row_b = st.columns(2)
-    row_b[0].text_input("Fuel", value=str(listing["fuel"]), disabled=True)
-    row_b[1].text_input("Transmission", value=str(listing["transmission"]), disabled=True)
-
-    row_c = st.columns(2)
-    row_c[0].text_input("Mileage", value=str(listing["mileage"]), disabled=True)
-    row_c[1].text_input("Engine", value=str(listing["engine"]), disabled=True)
-
-    row_d = st.columns(2)
-    row_d[0].text_input("Max power", value=str(listing["max_power"]), disabled=True)
-    row_d[1].text_input("Torque", value=str(listing["torque"]), disabled=True)
+    spec_items = [
+        ("Fuel", listing["fuel"]),
+        ("Transmission", listing["transmission"]),
+        ("Seats", f"{_normalise_seats_text(listing['seats'])} seats"),
+        ("Mileage", listing["mileage"]),
+        ("Engine", listing["engine"]),
+        ("Max power", listing["max_power"]),
+        ("Torque", listing["torque"]),
+    ]
+    pill_html = "".join(
+        f"""
+        <div class="spec-pill">
+            <span class="spec-pill-label">{escape(label)}</span>
+            <span class="spec-pill-value">{escape(str(value))}</span>
+        </div>
+        """
+        for label, value in spec_items
+    )
+    st.markdown(
+        f"""
+        <div class="panel-card spec-panel">
+            <div class="mini-label">Auto-filled technical profile</div>
+            <div class="spec-profile">{escape(str(listing["name"]))}</div>
+            <div class="spec-grid">{pill_html}</div>
+            <div class="support-note">
+                These technical values come from the selected catalogue profile, so users do not have to type fragile units or torque strings by hand.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def build_input_frame(listing: dict[str, Any], contract: dict[str, Any]) -> pd.DataFrame:
@@ -647,7 +786,7 @@ def render_empty_prediction_state() -> None:
         """
         <div class="panel-card">
             <div class="section-title">Prediction Desk</div>
-            <p>Enter a realistic used-car listing, then run the model to see the estimated selling price, parsed vehicle summary, what-if sensitivity, and benchmark context.</p>
+            <p>Choose a vehicle profile, adjust year and mileage, and run the estimate. Guided mode keeps the hardest technical fields out of the user’s way.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -672,39 +811,49 @@ def main() -> None:
             <div class="hero-kicker">Portfolio ML Product</div>
             <h1>Used Car Price Estimator</h1>
             <p>
-                A polished Streamlit frontend for the champion resale-price model. The app accepts raw listing fields,
-                runs the same training-time feature engineering under the hood, and returns a deployable price estimate
-                with model context instead of a bare number.
+                Choose a real vehicle profile, adjust the ownership and usage details, and get a resale estimate
+                without typing fragile technical specs by hand.
             </p>
+            <div class="hero-meta">
+                <div class="hero-chip">1. Choose brand and profile</div>
+                <div class="hero-chip">2. Adjust year and kilometres</div>
+                <div class="hero-chip">3. Review the GBP estimate</div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    stat_cols = st.columns(4)
-    with stat_cols[0]:
-        render_stat_card("Champion", "HistGradientBoosting", "Selected after validation-based tuning.")
-    with stat_cols[1]:
-        render_stat_card("Held-Out Test R2", f"{metric_value(metrics, 'R2'):.3f}", "Generalisation on untouched data.")
-    with stat_cols[2]:
-        render_stat_card("Held-Out Test MAE", format_price(metric_value(metrics, "MAE")), "Typical absolute miss size.")
-    with stat_cols[3]:
-        distinct_rows = dataset_snapshot.get("distinct_rows")
-        render_stat_card("Distinct Listings", f"{distinct_rows:,}" if distinct_rows else "n/a", "Rows kept after deduplication.")
-
-    st.write("")
+    st.caption(
+        f"GBP is the primary display for this app. Source prices come from India-market resale listings and are shown with INR and lakh as supporting references at 1 GBP = {INR_PER_GBP:.0f} INR."
+    )
 
     quick_cols = st.columns(4)
     if samples:
         for idx, sample in enumerate(samples[:3]):
             with quick_cols[idx]:
-                if st.button(f"Load Example {idx + 1}", use_container_width=True):
+                if st.button(example_button_label(sample, idx), use_container_width=True):
                     apply_listing_to_state(sample, vehicle_catalog)
                     st.rerun()
+                st.caption(example_button_caption(sample))
     with quick_cols[3]:
         if st.button("Reset Form", use_container_width=True):
             apply_listing_to_state(default_listing(samples), vehicle_catalog)
             st.rerun()
+        st.caption("Return to the default guided profile.")
+
+    with st.expander("Model confidence and dataset coverage", expanded=False):
+        stat_cols = st.columns(4)
+        with stat_cols[0]:
+            render_stat_card("Champion", "HistGradientBoosting", "Selected after validation-based tuning.")
+        with stat_cols[1]:
+            render_stat_card("Held-Out Test R2", f"{metric_value(metrics, 'R2'):.3f}", "Generalisation on untouched data.")
+        with stat_cols[2]:
+            render_stat_card("Held-Out Test MAE", format_price(metric_value(metrics, "MAE")), "Typical absolute miss size.")
+        with stat_cols[3]:
+            distinct_rows = dataset_snapshot.get("distinct_rows")
+            render_stat_card("Distinct Listings", f"{distinct_rows:,}" if distinct_rows else "n/a", "Rows kept after deduplication.")
+        st.caption("This keeps the portfolio evidence accessible without slowing down the main valuation flow.")
 
     left_col, right_col = st.columns([1.15, 0.85], gap="large")
 
@@ -723,7 +872,7 @@ def main() -> None:
         if st.session_state["input_mode"] == "Guided selector":
             st.caption("Choose the car from a searchable catalogue and let the app fill in the fragile technical fields for you.")
 
-            current_spec_row = ensure_guided_selection_state(vehicle_catalog)
+            ensure_guided_selection_state(vehicle_catalog)
 
             brand_options = get_brand_options(vehicle_catalog)
             st.selectbox("Brand", options=brand_options, key="guided_brand")
@@ -760,10 +909,9 @@ def main() -> None:
             selected_spec = spec_df.loc[spec_df["spec_id"] == st.session_state["guided_spec_id"]].iloc[0]
             apply_guided_spec_defaults(selected_spec)
 
-            row_a = st.columns(3)
+            row_a = st.columns(2)
             row_a[0].number_input("Year", min_value=1980, max_value=2035, step=1, key="input_year")
             row_a[1].number_input("Km driven", min_value=0, step=1000, key="input_km_driven")
-            row_a[2].text_input("Seats", value=str(_normalise_seats_text(selected_spec["seats_text"])), disabled=True)
 
             row_owner = st.columns(2)
             row_owner[0].selectbox("Seller type", SELLER_OPTIONS, key="input_seller_type")
@@ -860,13 +1008,13 @@ def main() -> None:
         else:
             render_prediction_card(result, metrics)
             st.write("")
-            st.markdown('<div class="section-title">Parsed Feature Snapshot</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Vehicle Summary</div>', unsafe_allow_html=True)
             render_parsed_summary(result["parsed_summary"])
-            st.caption("These values are derived from the raw form input before the model scores the listing.")
+            st.caption("These values are parsed from the chosen profile and your input before the model scores the listing.")
 
     result = st.session_state.get("prediction_result")
     tab_predict, tab_whatif, tab_model, tab_notes = st.tabs(
-        ["Parsed Details", "What-If Analysis", "Model Benchmarks", "Project Notes"]
+        ["How The Car Was Read", "Price Sensitivity", "Model Quality", "About The App"]
     )
 
     with tab_predict:
@@ -875,12 +1023,10 @@ def main() -> None:
         else:
             raw_df = pd.DataFrame([result["raw_input"]])
             parsed_df = pd.DataFrame([result["parsed_summary"]]).T.rename(columns={0: "value"})
-            left, right = st.columns([1, 1])
-            with left:
-                st.markdown("#### Raw input payload")
+            st.caption("Use this section to verify exactly what the app sent into the model and how it parsed the selected vehicle.")
+            with st.expander("View raw vehicle payload", expanded=False):
                 st.dataframe(raw_df, use_container_width=True, hide_index=True)
-            with right:
-                st.markdown("#### Derived view")
+            with st.expander("View parsed feature table", expanded=False):
                 st.dataframe(parsed_df, use_container_width=True)
 
     with tab_whatif:
@@ -922,56 +1068,77 @@ def main() -> None:
                 metric_cols[0].metric("Base estimate", format_gbp(result["prediction"]))
                 metric_cols[1].metric("Scenario estimate", format_gbp(scenario_prediction), delta=format_delta_gbp(scenario_delta))
                 metric_cols[2].metric(
-                    "Reference in lakh",
-                    format_short_price(scenario_prediction),
-                    delta=f"{scenario_delta / 100000:+.2f} lakh",
+                    "Reference INR",
+                    format_price(scenario_prediction),
+                    delta=format_delta(scenario_delta),
                 )
                 st.caption(
-                    f"This section reuses the same saved pipeline. Primary display is GBP at 1 GBP = {INR_PER_GBP:.0f} INR, with lakh shown as a reference."
+                    f"This section reuses the same saved pipeline. Primary display is GBP at 1 GBP = {INR_PER_GBP:.0f} INR. Secondary reference: {format_short_price(scenario_prediction)}."
                 )
             except Exception as exc:
                 st.error(f"Scenario analysis failed: {exc}")
 
     with tab_model:
+        st.caption("This section is for reviewers, recruiters, and anyone who wants to inspect the model evidence behind the estimate.")
+        stat_cols = st.columns(4)
+        with stat_cols[0]:
+            render_stat_card("Champion", "HistGradientBoosting", "Best validation result after tuning.")
+        with stat_cols[1]:
+            render_stat_card("Held-Out Test R2", f"{metric_value(metrics, 'R2'):.3f}", "Primary generalisation score.")
+        with stat_cols[2]:
+            render_stat_card("Held-Out Test MAE", format_price(metric_value(metrics, "MAE")), "Typical error in source currency.")
+        with stat_cols[3]:
+            distinct_rows = dataset_snapshot.get("distinct_rows")
+            render_stat_card("Distinct Listings", f"{distinct_rows:,}" if distinct_rows else "n/a", "Deduplicated training coverage.")
+        st.write("")
         st.markdown("#### Benchmark ladder")
         if benchmark_df.empty:
             st.warning("Benchmark report not found.")
         else:
-            benchmark_view = benchmark_df.copy()
-            benchmark_view["val_rmse"] = benchmark_view["val_rmse"].round(0)
-            benchmark_view["val_mae"] = benchmark_view["val_mae"].round(0)
-            benchmark_view["val_r2"] = benchmark_view["val_r2"].round(3)
-            st.dataframe(
-                benchmark_view[["model", "val_r2", "val_mae", "val_rmse", "cv_rmse_mean"]],
-                use_container_width=True,
-                hide_index=True,
-            )
             chart_df = benchmark_df.set_index("model")[["val_rmse"]]
             st.bar_chart(chart_df)
-            st.caption("Validation RMSE is lower-is-better. HistGradientBoosting became the production choice after tuning.")
+            with st.expander("View full benchmark table", expanded=False):
+                benchmark_view = benchmark_df.copy()
+                benchmark_view["val_rmse"] = benchmark_view["val_rmse"].round(0)
+                benchmark_view["val_mae"] = benchmark_view["val_mae"].round(0)
+                benchmark_view["val_r2"] = benchmark_view["val_r2"].round(3)
+                st.dataframe(
+                    benchmark_view[["model", "val_r2", "val_mae", "val_rmse", "cv_rmse_mean"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            st.caption("Validation RMSE is lower-is-better. HistGradientBoosting became the production choice after targeted tuning.")
 
     with tab_notes:
-        st.markdown("#### Project framing")
+        st.markdown("#### What this app is designed to do")
         st.markdown(
             """
-            - The notebook compares linear, regularised, tree-ensemble, and boosting regressors on the same deduplicated split.
-            - The champion model is trained on raw listing inputs, then handles parsing and feature engineering internally.
-            - The held-out test score is strong enough for a portfolio demo, but rare fuels and very expensive automatic listings still need caution.
-            - Prices are displayed in the dataset's original numeric scale, which corresponds to Indian rupees.
+            - Help a user estimate a likely resale price quickly without typing error-prone technical strings.
+            - Keep the same training-time feature engineering inside the deployed pipeline so the app and model stay aligned.
+            - Surface a portfolio-grade level of model evidence without overwhelming the main valuation flow.
+            - Show GBP first for readability, while keeping INR and lakh visible as source-data references.
             """
         )
-        st.markdown("#### Files used by this app")
-        st.code(
-            "\n".join(
-                [
-                    str(MODEL_PATH),
-                    str(CONTRACT_PATH),
-                    str(SAMPLE_PAYLOAD_PATH),
-                    str(FINAL_METRICS_PATH),
-                    str(BENCHMARK_PATH),
-                ]
-            )
+        st.markdown("#### Limits to keep in mind")
+        st.markdown(
+            """
+            - The training data reflects India-market used-car listings, so the app is best treated as a guided estimator rather than a dealer-grade quote engine.
+            - Rare fuels and unusually expensive trims are less stable than common diesel and petrol listings.
+            - GBP values use a fixed reference rate, not a live FX feed.
+            """
         )
+        with st.expander("Files and artifacts used by the app", expanded=False):
+            st.code(
+                "\n".join(
+                    [
+                        str(MODEL_PATH),
+                        str(CONTRACT_PATH),
+                        str(SAMPLE_PAYLOAD_PATH),
+                        str(FINAL_METRICS_PATH),
+                        str(BENCHMARK_PATH),
+                    ]
+                )
+            )
 
 
 if __name__ == "__main__":
