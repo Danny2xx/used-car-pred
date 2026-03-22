@@ -278,6 +278,53 @@ def load_dataset_snapshot() -> dict[str, Any]:
     }
 
 
+@st.cache_data(show_spinner=False)
+def load_vehicle_catalog() -> pd.DataFrame:
+    df = pd.read_csv(DATA_PATH).drop_duplicates().copy()
+    df["brand"] = df["name"].fillna("Unknown").astype(str).str.split().str[0]
+    df["seats_text"] = df["seats"].fillna("").astype(str)
+
+    grouped = (
+        df.groupby(
+            [
+                "brand",
+                "name",
+                "fuel",
+                "transmission",
+                "engine",
+                "max_power",
+                "torque",
+                "seats_text",
+                "mileage",
+            ],
+            dropna=False,
+        )
+        .agg(
+            profile_count=("name", "size"),
+            typical_year=("year", "median"),
+            typical_km_driven=("km_driven", "median"),
+            seller_mode=("seller_type", lambda s: s.mode().iloc[0] if not s.mode().empty else "Individual"),
+            owner_mode=("owner", lambda s: s.mode().iloc[0] if not s.mode().empty else "First Owner"),
+        )
+        .reset_index()
+    )
+
+    grouped["name_total_count"] = grouped.groupby(["brand", "name"])["profile_count"].transform("sum")
+    grouped["spec_id"] = grouped.index.astype(str)
+    grouped["spec_label"] = grouped.apply(
+        lambda row: (
+            f'{row["fuel"]} | {row["transmission"]} | {row["engine"]} | '
+            f'{row["max_power"]} | {row["mileage"]}'
+        ),
+        axis=1,
+    )
+    grouped = grouped.sort_values(
+        ["brand", "name_total_count", "name", "profile_count"],
+        ascending=[True, False, True, False],
+    ).reset_index(drop=True)
+    return grouped
+
+
 @st.cache_resource(show_spinner="Loading model...")
 def load_model():
     register_pickle_shim()
@@ -336,17 +383,127 @@ def default_listing(samples: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def apply_listing_to_state(listing: dict[str, Any]) -> None:
+def _normalise_seats_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
+def sync_guided_selection_from_listing(listing: dict[str, Any], catalog: pd.DataFrame) -> None:
+    brand = str(listing.get("name", "")).split(" ", 1)[0] if listing.get("name") else "Unknown"
+    st.session_state["guided_brand"] = brand
+    st.session_state["guided_name"] = listing.get("name", "")
+
+    seats_text = _normalise_seats_text(listing.get("seats"))
+    matches = catalog[
+        (catalog["name"] == listing.get("name"))
+        & (catalog["fuel"] == listing.get("fuel"))
+        & (catalog["transmission"] == listing.get("transmission"))
+        & (catalog["engine"] == listing.get("engine"))
+        & (catalog["max_power"] == listing.get("max_power"))
+        & (catalog["torque"] == listing.get("torque"))
+        & (catalog["mileage"] == listing.get("mileage"))
+        & (catalog["seats_text"].apply(_normalise_seats_text) == seats_text)
+    ]
+
+    if matches.empty:
+        matches = catalog[catalog["name"] == listing.get("name")]
+
+    if not matches.empty:
+        spec_row = matches.iloc[0]
+        st.session_state["guided_brand"] = spec_row["brand"]
+        st.session_state["guided_name"] = spec_row["name"]
+        st.session_state["guided_spec_id"] = spec_row["spec_id"]
+        st.session_state["last_guided_spec_id"] = spec_row["spec_id"]
+
+
+def apply_listing_to_state(listing: dict[str, Any], catalog: pd.DataFrame) -> None:
     for key in RAW_FEATURE_COLUMNS:
         st.session_state[f"input_{key}"] = listing.get(key)
+    st.session_state["input_mode"] = "Guided selector"
+    sync_guided_selection_from_listing(listing, catalog)
     st.session_state["prediction_result"] = None
 
 
-def ensure_form_state(samples: list[dict[str, Any]]) -> None:
+def ensure_form_state(samples: list[dict[str, Any]], catalog: pd.DataFrame) -> None:
     listing = default_listing(samples)
     for key, value in listing.items():
         st.session_state.setdefault(f"input_{key}", value)
+    st.session_state.setdefault("input_mode", "Guided selector")
     st.session_state.setdefault("prediction_result", None)
+    st.session_state.setdefault("last_guided_spec_id", None)
+    st.session_state.setdefault("guided_brand", listing["name"].split(" ", 1)[0])
+    st.session_state.setdefault("guided_name", listing["name"])
+    sync_guided_selection_from_listing(listing, catalog)
+
+
+def get_brand_options(catalog: pd.DataFrame) -> list[str]:
+    return sorted(catalog["brand"].dropna().unique().tolist())
+
+
+def get_name_options(catalog: pd.DataFrame, brand: str) -> list[str]:
+    brand_df = catalog[catalog["brand"] == brand]
+    ordered_names = (
+        brand_df[["name", "name_total_count"]]
+        .drop_duplicates()
+        .sort_values(["name_total_count", "name"], ascending=[False, True])["name"]
+        .tolist()
+    )
+    return ordered_names
+
+
+def ensure_guided_selection_state(catalog: pd.DataFrame) -> pd.Series:
+    brand_options = get_brand_options(catalog)
+    current_brand = st.session_state.get("guided_brand")
+    if current_brand not in brand_options:
+        current_brand = brand_options[0]
+        st.session_state["guided_brand"] = current_brand
+
+    name_options = get_name_options(catalog, current_brand)
+    current_name = st.session_state.get("guided_name")
+    if current_name not in name_options:
+        current_name = name_options[0]
+        st.session_state["guided_name"] = current_name
+
+    spec_df = catalog[(catalog["brand"] == current_brand) & (catalog["name"] == current_name)].copy()
+    spec_options = spec_df["spec_id"].tolist()
+    current_spec_id = st.session_state.get("guided_spec_id")
+    if current_spec_id not in spec_options:
+        current_spec_id = spec_options[0]
+        st.session_state["guided_spec_id"] = current_spec_id
+
+    return spec_df.loc[spec_df["spec_id"] == current_spec_id].iloc[0]
+
+
+def apply_guided_spec_defaults(spec_row: pd.Series) -> None:
+    spec_id = spec_row["spec_id"]
+    spec_changed = st.session_state.get("last_guided_spec_id") != spec_id
+
+    st.session_state["input_name"] = spec_row["name"]
+    st.session_state["input_fuel"] = spec_row["fuel"]
+    st.session_state["input_transmission"] = spec_row["transmission"]
+    st.session_state["input_engine"] = spec_row["engine"]
+    st.session_state["input_max_power"] = spec_row["max_power"]
+    st.session_state["input_torque"] = spec_row["torque"]
+    st.session_state["input_mileage"] = spec_row["mileage"]
+
+    try:
+        st.session_state["input_seats"] = float(spec_row["seats_text"])
+    except Exception:
+        pass
+
+    if spec_changed:
+        st.session_state["input_year"] = int(round(float(spec_row["typical_year"])))
+        st.session_state["input_km_driven"] = int(round(float(spec_row["typical_km_driven"])))
+        if spec_row["seller_mode"] in SELLER_OPTIONS:
+            st.session_state["input_seller_type"] = spec_row["seller_mode"]
+        if spec_row["owner_mode"] in OWNER_OPTIONS:
+            st.session_state["input_owner"] = spec_row["owner_mode"]
+
+    st.session_state["last_guided_spec_id"] = spec_id
 
 
 def collect_form_input() -> dict[str, Any]:
@@ -377,6 +534,21 @@ def validate_listing(listing: dict[str, Any]) -> list[str]:
     if listing["seats"] <= 0:
         errors.append("Seats must be greater than zero.")
     return errors
+
+
+def render_autofilled_spec_panel(listing: dict[str, Any]) -> None:
+    st.caption("Core vehicle specs are auto-filled from the selected dataset profile to reduce typing errors.")
+    row_b = st.columns(2)
+    row_b[0].text_input("Fuel", value=str(listing["fuel"]), disabled=True)
+    row_b[1].text_input("Transmission", value=str(listing["transmission"]), disabled=True)
+
+    row_c = st.columns(2)
+    row_c[0].text_input("Mileage", value=str(listing["mileage"]), disabled=True)
+    row_c[1].text_input("Engine", value=str(listing["engine"]), disabled=True)
+
+    row_d = st.columns(2)
+    row_d[0].text_input("Max power", value=str(listing["max_power"]), disabled=True)
+    row_d[1].text_input("Torque", value=str(listing["torque"]), disabled=True)
 
 
 def build_input_frame(listing: dict[str, Any], contract: dict[str, Any]) -> pd.DataFrame:
@@ -485,8 +657,9 @@ def main() -> None:
     metrics = load_metrics()
     benchmark_df = load_benchmarks()
     dataset_snapshot = load_dataset_snapshot()
+    vehicle_catalog = load_vehicle_catalog()
 
-    ensure_form_state(samples)
+    ensure_form_state(samples, vehicle_catalog)
 
     st.markdown(
         """
@@ -521,20 +694,94 @@ def main() -> None:
         for idx, sample in enumerate(samples[:3]):
             with quick_cols[idx]:
                 if st.button(f"Load Example {idx + 1}", use_container_width=True):
-                    apply_listing_to_state(sample)
+                    apply_listing_to_state(sample, vehicle_catalog)
                     st.rerun()
     with quick_cols[3]:
         if st.button("Reset Form", use_container_width=True):
-            apply_listing_to_state(default_listing(samples))
+            apply_listing_to_state(default_listing(samples), vehicle_catalog)
             st.rerun()
 
     left_col, right_col = st.columns([1.15, 0.85], gap="large")
 
     with left_col:
         st.markdown('<div class="section-title">Vehicle Details</div>', unsafe_allow_html=True)
-        st.caption("Keep the fields close to a real listing format so the trained parser can read them well.")
+        st.radio(
+            "Input mode",
+            options=["Guided selector", "Manual entry"],
+            horizontal=True,
+            key="input_mode",
+            help="Guided selector auto-fills technical specs from the dataset. Switch to manual only when your exact vehicle profile is not available.",
+        )
 
-        with st.form("prediction_form", clear_on_submit=False):
+        selected_listing = None
+
+        if st.session_state["input_mode"] == "Guided selector":
+            st.caption("Choose the car from a searchable catalogue and let the app fill in the fragile technical fields for you.")
+
+            current_spec_row = ensure_guided_selection_state(vehicle_catalog)
+
+            brand_options = get_brand_options(vehicle_catalog)
+            st.selectbox("Brand", options=brand_options, key="guided_brand")
+
+            name_options = get_name_options(vehicle_catalog, st.session_state["guided_brand"])
+            st.selectbox(
+                "Vehicle profile",
+                options=name_options,
+                key="guided_name",
+                help="Type in the dropdown to search trims and variants.",
+            )
+
+            spec_df = vehicle_catalog[
+                (vehicle_catalog["brand"] == st.session_state["guided_brand"])
+                & (vehicle_catalog["name"] == st.session_state["guided_name"])
+            ].copy()
+            spec_label_map = dict(zip(spec_df["spec_id"], spec_df["spec_label"]))
+
+            if st.session_state.get("guided_spec_id") not in spec_df["spec_id"].tolist():
+                st.session_state["guided_spec_id"] = spec_df.iloc[0]["spec_id"]
+
+            if len(spec_df) > 1:
+                st.selectbox(
+                    "Spec preset",
+                    options=spec_df["spec_id"].tolist(),
+                    format_func=lambda spec_id: spec_label_map[spec_id],
+                    key="guided_spec_id",
+                    help="Some titles appear with multiple technical configurations. Pick the closest preset.",
+                )
+            else:
+                st.caption(f"Auto-filled spec: {spec_df.iloc[0]['spec_label']}")
+                st.session_state["guided_spec_id"] = spec_df.iloc[0]["spec_id"]
+
+            selected_spec = spec_df.loc[spec_df["spec_id"] == st.session_state["guided_spec_id"]].iloc[0]
+            apply_guided_spec_defaults(selected_spec)
+
+            row_a = st.columns(3)
+            row_a[0].number_input("Year", min_value=1980, max_value=2035, step=1, key="input_year")
+            row_a[1].number_input("Km driven", min_value=0, step=1000, key="input_km_driven")
+            row_a[2].text_input("Seats", value=str(_normalise_seats_text(selected_spec["seats_text"])), disabled=True)
+
+            row_owner = st.columns(2)
+            row_owner[0].selectbox("Seller type", SELLER_OPTIONS, key="input_seller_type")
+            row_owner[1].selectbox("Owner history", OWNER_OPTIONS, key="input_owner")
+
+            selected_listing = {
+                "name": str(selected_spec["name"]).strip(),
+                "year": int(st.session_state["input_year"]),
+                "km_driven": int(st.session_state["input_km_driven"]),
+                "fuel": str(selected_spec["fuel"]),
+                "seller_type": st.session_state["input_seller_type"],
+                "transmission": str(selected_spec["transmission"]),
+                "owner": st.session_state["input_owner"],
+                "mileage": str(selected_spec["mileage"]).strip(),
+                "engine": str(selected_spec["engine"]).strip(),
+                "max_power": str(selected_spec["max_power"]).strip(),
+                "torque": str(selected_spec["torque"]).strip(),
+                "seats": float(selected_spec["seats_text"]),
+            }
+            render_autofilled_spec_panel(selected_listing)
+        else:
+            st.caption("Manual entry is still available, but it is best reserved for cars not covered by the guided catalogue.")
+
             st.text_input(
                 "Listing title",
                 key="input_name",
@@ -583,10 +830,12 @@ def main() -> None:
                 help="Example: 250Nm@ 1500-2500rpm",
             )
 
-            submitted = st.form_submit_button("Estimate Resale Price", use_container_width=True)
+            selected_listing = collect_form_input()
+
+        submitted = st.button("Estimate Resale Price", use_container_width=True)
 
         if submitted:
-            listing = collect_form_input()
+            listing = selected_listing if selected_listing is not None else collect_form_input()
             errors = validate_listing(listing)
             if errors:
                 for error in errors:
