@@ -1,0 +1,24 @@
+{
+  "raw_feature_columns": [
+    "name",
+    "year",
+    "km_driven",
+    "fuel",
+    "seller_type",
+    "transmission",
+    "owner",
+    "mileage",
+    "engine",
+    "max_power",
+    "torque",
+    "seats"
+  ],
+  "target_column": "selling_price",
+  "model_artifact": "used_car_price_champion.joblib",
+  "prediction_field": "predicted_price",
+  "notes": {
+    "artifact_accepts_raw_listing_inputs": true,
+    "text_feature_is_built_from_name_column": true,
+    "target_was_modeled_in_log_space": true
+  }
+}

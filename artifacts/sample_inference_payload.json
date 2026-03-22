@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Mahindra Bolero Power Plus SLX",
+    "year": 2018,
+    "km_driven": 60000,
+    "fuel": "Diesel",
+    "seller_type": "Individual",
+    "transmission": "Manual",
+    "owner": "First Owner",
+    "mileage": "16.5 kmpl",
+    "engine": "1493 CC",
+    "max_power": "70 bhp",
+    "torque": "195Nm@ 1400-2200rpm",
+    "seats": 7.0
+  },
+  {
+    "name": "Maruti Swift VDI",
+    "year": 2013,
+    "km_driven": 67000,
+    "fuel": "Diesel",
+    "seller_type": "Dealer",
+    "transmission": "Manual",
+    "owner": "Second Owner",
+    "mileage": "28.4 kmpl",
+    "engine": "1248 CC",
+    "max_power": "74 bhp",
+    "torque": "190Nm@ 2000rpm",
+    "seats": 5.0
+  },
+  {
+    "name": "Mahindra XUV500 AT W9 2WD",
+    "year": 2018,
+    "km_driven": 20000,
+    "fuel": "Diesel",
+    "seller_type": "Individual",
+    "transmission": "Automatic",
+    "owner": "First Owner",
+    "mileage": "16.0 kmpl",
+    "engine": "2179 CC",
+    "max_power": "138 bhp",
+    "torque": "330Nm@ 1600-2800rpm",
+    "seats": 7.0
+  }
+]
