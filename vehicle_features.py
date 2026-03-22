@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Union
 import __main__
+import sys
 
 import numpy as np
 import pandas as pd
@@ -227,3 +228,6 @@ def build_parsed_summary(raw_input: dict[str, Any], reference_year: int = REFERE
 
 def register_pickle_shim() -> None:
     setattr(__main__, "VehicleFeatureEngineer", VehicleFeatureEngineer)
+    main_module = sys.modules.get("main")
+    if main_module is not None:
+        setattr(main_module, "VehicleFeatureEngineer", VehicleFeatureEngineer)

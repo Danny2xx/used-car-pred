@@ -8,7 +8,12 @@ import joblib
 import pandas as pd
 import streamlit as st
 
-from vehicle_features import RAW_FEATURE_COLUMNS, build_parsed_summary, register_pickle_shim
+from vehicle_features import (
+    RAW_FEATURE_COLUMNS,
+    VehicleFeatureEngineer,
+    build_parsed_summary,
+    register_pickle_shim,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
