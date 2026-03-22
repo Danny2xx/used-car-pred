@@ -23,6 +23,7 @@ FINAL_METRICS_PATH = BASE_DIR / "reports" / "final_test_metrics.csv"
 SAMPLE_PAYLOAD_PATH = BASE_DIR / "artifacts" / "sample_inference_payload.json"
 CONTRACT_PATH = BASE_DIR / "artifacts" / "inference_contract.json"
 DATA_PATH = BASE_DIR / "Car details v3.csv"
+INR_PER_GBP = 105.0
 
 FUEL_OPTIONS = ["Diesel", "Petrol", "CNG", "LPG"]
 SELLER_OPTIONS = ["Individual", "Dealer", "Trustmark Dealer"]
@@ -296,9 +297,18 @@ def format_short_price(value: float) -> str:
     return f"{value / 100000:.2f} lakh"
 
 
+def format_gbp(value: float) -> str:
+    return f"GBP {value / INR_PER_GBP:,.0f}"
+
+
 def format_delta(value: float) -> str:
     sign = "+" if value >= 0 else "-"
     return f"{sign} {format_price(abs(value))}"
+
+
+def format_delta_gbp(value: float) -> str:
+    sign = "+" if value >= 0 else "-"
+    return f"{sign} {format_gbp(abs(value))}"
 
 
 def metric_value(metrics: pd.DataFrame, key: str) -> float:
@@ -410,10 +420,11 @@ def render_prediction_card(result: dict[str, Any], metrics: pd.DataFrame) -> Non
         f"""
         <div class="prediction-card">
             <div class="prediction-label">Estimated Resale Price</div>
-            <div class="prediction-value">{format_price(result["prediction"])}</div>
-            <p class="prediction-sub">{format_short_price(result["prediction"])} in the dataset's original price scale.</p>
-            <p class="prediction-sub">Typical error band from held-out testing: {format_price(result["band_low"])} to {format_price(result["band_high"])}</p>
-            <p class="prediction-sub">Champion model test score: R2 {r2:.3f} | MAE {format_price(result["test_mae"])}</p>
+            <div class="prediction-value">{format_gbp(result["prediction"])}</div>
+            <p class="prediction-sub">Reference display: {format_price(result["prediction"])} | {format_short_price(result["prediction"])}</p>
+            <p class="prediction-sub">Typical error band: {format_gbp(result["band_low"])} to {format_gbp(result["band_high"])}</p>
+            <p class="prediction-sub">Reference exchange rate: 1 GBP = {INR_PER_GBP:.0f} INR</p>
+            <p class="prediction-sub">Champion model test score: R2 {r2:.3f} | MAE {format_gbp(result["test_mae"])}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -654,14 +665,16 @@ def main() -> None:
                 scenario_prediction = float(load_model().predict(build_input_frame(scenario_input, contract))[0])
                 scenario_delta = scenario_prediction - result["prediction"]
                 metric_cols = st.columns(3)
-                metric_cols[0].metric("Base estimate", format_price(result["prediction"]))
-                metric_cols[1].metric("Scenario estimate", format_price(scenario_prediction), delta=format_delta(scenario_delta))
+                metric_cols[0].metric("Base estimate", format_gbp(result["prediction"]))
+                metric_cols[1].metric("Scenario estimate", format_gbp(scenario_prediction), delta=format_delta_gbp(scenario_delta))
                 metric_cols[2].metric(
-                    "Shift in lakh terms",
+                    "Reference in lakh",
                     format_short_price(scenario_prediction),
                     delta=f"{scenario_delta / 100000:+.2f} lakh",
                 )
-                st.caption("This section reuses the same saved pipeline, so the what-if output stays aligned with the model artifact.")
+                st.caption(
+                    f"This section reuses the same saved pipeline. Primary display is GBP at 1 GBP = {INR_PER_GBP:.0f} INR, with lakh shown as a reference."
+                )
             except Exception as exc:
                 st.error(f"Scenario analysis failed: {exc}")
 
