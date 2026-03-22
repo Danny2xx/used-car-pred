@@ -430,6 +430,10 @@ def apply_listing_to_state(listing: dict[str, Any], catalog: pd.DataFrame) -> No
 
 def ensure_form_state(samples: list[dict[str, Any]], catalog: pd.DataFrame) -> None:
     listing = default_listing(samples)
+    needs_guided_sync = any(
+        key not in st.session_state
+        for key in ["guided_brand", "guided_name", "guided_spec_id", "last_guided_spec_id"]
+    )
     for key, value in listing.items():
         st.session_state.setdefault(f"input_{key}", value)
     st.session_state.setdefault("input_mode", "Guided selector")
@@ -437,7 +441,8 @@ def ensure_form_state(samples: list[dict[str, Any]], catalog: pd.DataFrame) -> N
     st.session_state.setdefault("last_guided_spec_id", None)
     st.session_state.setdefault("guided_brand", listing["name"].split(" ", 1)[0])
     st.session_state.setdefault("guided_name", listing["name"])
-    sync_guided_selection_from_listing(listing, catalog)
+    if needs_guided_sync:
+        sync_guided_selection_from_listing(listing, catalog)
 
 
 def get_brand_options(catalog: pd.DataFrame) -> list[str]:
